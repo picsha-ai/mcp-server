@@ -1,9 +1,16 @@
 {
-  "name": "picsha-mcp-server",
-  "version": "1.0.0",
+  "name": "@picsha-ai/mcp-server",
+  "version": "1.0.9",
   "description": "MCP Server for the Picsha AI API",
   "type": "module",
   "main": "dist/index.js",
+  "bin": {
+    "mcp-server": "./dist/index.js",
+    "picsha-ai-mcp": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
@@ -15,12 +22,14 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.0",
     "node-fetch": "^3.3.2",
-    "zod": "^4.3.6"
+    "zod": "^4.3.6",
+    "mime-types": "^2.1.35"
   },
   "devDependencies": {
     "@types/node": "^25.3.0",
     "@types/node-fetch": "^2.6.13",
     "tsx": "^4.21.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "@types/mime-types": "^2.1.4"
   }
 }
