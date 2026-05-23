@@ -83,9 +83,13 @@ server.tool(
     },
     async ({ query, mode, threshold, sort }) => {
         try {
+            let apiSort: string = sort;
+            if (sort === "newest") apiSort = "created-desc";
+            if (sort === "oldest") apiSort = "created-asc";
+
             const results = await apiRequest("/search", {
                 method: "POST",
-                body: JSON.stringify({ query, mode, threshold, sort })
+                body: JSON.stringify({ query, mode, threshold, sort: apiSort })
             });
 
             // Top 5 results only
@@ -295,6 +299,354 @@ server.tool(
                 isError: true
             };
         }
+    }
+);
+
+server.tool(
+    "list_recent_assets",
+    "List recently added assets in the Picsha platform. IMPORTANT: When replying to the user, ALWAYS format this as a clean Markdown table with columns for ID, Original Name, Status, and Date.",
+    {
+        limit: z.number().optional().default(10).describe("Number of assets to retrieve")
+    },
+    async ({ limit }) => {
+        try {
+            const results = await apiRequest(`/assets?limit=${limit}`);
+            return {
+                content: [{ type: "text", text: JSON.stringify(results.data || results, null, 2) }]
+            };
+        } catch (error: any) {
+            return {
+                content: [{ type: "text", text: `Error listing assets: ${error.message}` }],
+                isError: true
+            };
+        }
+    }
+);
+
+server.tool(
+    "update_asset",
+    "Update an asset's tags or custom metadata. Prefix a tag with a hyphen (e.g. '-discard') to remove it, or specify normally to add it.",
+    {
+        id: z.string().describe("The unique ID of the asset"),
+        name: z.string().optional().describe("Optional new name/title for the asset"),
+        tags: z.array(z.string()).optional().describe("Array of strings to append as tags. Prefix with a hyphen to remove."),
+        metadata: z.record(z.string(), z.any()).optional().describe("Custom key-value dictionary to attach")
+    },
+    async ({ id, name, tags, metadata }) => {
+        try {
+            const body: any = {};
+            if (name) body.meta = { title: name };
+            if (tags) body.tags = tags;
+            if (metadata) body.metadata = metadata;
+
+            const result = await apiRequest(`/assets/${id}`, {
+                method: "PATCH",
+                body: JSON.stringify(body)
+            });
+            return {
+                content: [{ type: "text", text: `Successfully updated asset ${id}: ${JSON.stringify(result, null, 2)}` }]
+            };
+        } catch (error: any) {
+            return {
+                content: [{ type: "text", text: `Error updating asset: ${error.message}` }],
+                isError: true
+            };
+        }
+    }
+);
+
+server.tool(
+    "delete_asset",
+    "Permanently delete an asset from the database, search indexes, and physical storage.",
+    {
+        id: z.string().describe("The unique ID of the asset to delete")
+    },
+    async ({ id }) => {
+        try {
+            const result = await apiRequest(`/assets/${id}`, {
+                method: "DELETE"
+            });
+            return {
+                content: [{ type: "text", text: `Successfully deleted asset ${id}: ${JSON.stringify(result, null, 2)}` }]
+            };
+        } catch (error: any) {
+            return {
+                content: [{ type: "text", text: `Error deleting asset: ${error.message}` }],
+                isError: true
+            };
+        }
+    }
+);
+
+server.tool(
+    "moderate_asset",
+    "Approve or reject a moderated asset pending manual review.",
+    {
+        id: z.string().describe("The unique ID of the asset"),
+        action: z.enum(["approve", "reject"]).describe("The moderation action to perform")
+    },
+    async ({ id, action }) => {
+        try {
+            const result = await apiRequest(`/assets/${id}/moderation`, {
+                method: "POST",
+                body: JSON.stringify({ action })
+            });
+            return {
+                content: [{ type: "text", text: `Successfully applied moderation action '${action}' to asset ${id}: ${JSON.stringify(result, null, 2)}` }]
+            };
+        } catch (error: any) {
+            return {
+                content: [{ type: "text", text: `Error moderating asset: ${error.message}` }],
+                isError: true
+            };
+        }
+    }
+);
+
+server.tool(
+    "create_dam_group",
+    "Create a new Digital Asset Management (DAM) group/collection (folder) to organize assets.",
+    {
+        name: z.string().describe("The name of the collection/folder"),
+        description: z.string().optional().describe("A description for the group")
+    },
+    async ({ name, description }) => {
+        try {
+            const result = await apiRequest("/dam/groups", {
+                method: "POST",
+                body: JSON.stringify({
+                    name,
+                    metadata: { description }
+                })
+            });
+            return {
+                content: [{ type: "text", text: `Successfully created DAM group: ${JSON.stringify(result, null, 2)}` }]
+            };
+        } catch (error: any) {
+            return {
+                content: [{ type: "text", text: `Error creating DAM group: ${error.message}` }],
+                isError: true
+            };
+        }
+    }
+);
+
+server.tool(
+    "link_assets",
+    "Link a source/parent asset to a target/child asset (e.g. variations, derived formats, social crops) with a custom relationship description.",
+    {
+        sourceId: z.string().describe("The parent/source asset ID"),
+        targetId: z.string().describe("The child/target asset ID"),
+        relationshipType: z.string().describe("Description of the link relationship (e.g. 'variation', 'social_crop', 'thumbnail')")
+    },
+    async ({ sourceId, targetId, relationshipType }) => {
+        try {
+            const result = await apiRequest("/dam/relationships", {
+                method: "POST",
+                body: JSON.stringify({
+                    sourceAssetId: sourceId,
+                    targetAssetId: targetId,
+                    relationshipType
+                })
+            });
+            return {
+                content: [{ type: "text", text: `Successfully linked asset ${targetId} to ${sourceId} as '${relationshipType}': ${JSON.stringify(result, null, 2)}` }]
+            };
+        } catch (error: any) {
+            return {
+                content: [{ type: "text", text: `Error linking assets: ${error.message}` }],
+                isError: true
+            };
+        }
+    }
+);
+
+server.tool(
+    "trigger_url_ingest",
+    "Ingest a public web asset directly into the Picsha AI platform by downloading and putting it through the ingestion pipeline.",
+    {
+        url: z.string().url().describe("Public URL of the media asset to download and ingest"),
+        filename: z.string().optional().describe("Optional original filename to associate with the asset"),
+        config: z.object({
+            auto_summarize: z.boolean().optional(),
+            auto_tag: z.boolean().optional(),
+            vectorize: z.boolean().optional(),
+            location_lookup: z.boolean().optional(),
+            adaptive_stream: z.boolean().optional()
+        }).optional().describe("Configuration for AI processing, mimicking ingest options")
+    },
+    async ({ url, filename, config }) => {
+        try {
+            const result = await apiRequest("/assets", {
+                method: "POST",
+                body: JSON.stringify({
+                    url,
+                    originalName: filename,
+                    config
+                })
+            });
+            return {
+                content: [{ type: "text", text: `Successfully triggered URL ingest: ${JSON.stringify(result, null, 2)}` }]
+            };
+        } catch (error: any) {
+            return {
+                content: [{ type: "text", text: `Error triggering URL ingest: ${error.message}` }],
+                isError: true
+            };
+        }
+    }
+);
+
+server.tool(
+    "escalate_to_support",
+    "Use this tool ONLY when you need to log a feature request, report a documentation gap, or escalate an issue to the engineering team. This will actually send an email to support@picsha.ai.",
+    {
+        subject: z.string().describe("The subject of the escalation email"),
+        headline: z.string().describe("A short, punchy headline for the email (e.g. 'Docs Gap Report')"),
+        message: z.string().describe("The full summary of the request, formatted nicely. Use \\n for line breaks.")
+    },
+    async ({ subject, headline, message }) => {
+        try {
+            const result = await apiRequest("/support/escalate", {
+                method: "POST",
+                body: JSON.stringify({
+                    subject,
+                    headline,
+                    message
+                })
+            });
+            return {
+                content: [{ type: "text", text: `Successfully escalated support report: ${JSON.stringify(result, null, 2)}` }]
+            };
+        } catch (error: any) {
+            return {
+                content: [{ type: "text", text: `Error escalating to support: ${error.message}` }],
+                isError: true
+            };
+        }
+    }
+);
+
+server.prompt(
+    "analyze_asset_profile",
+    "Provides a structured template to do a deep analysis of a media asset's metadata, EXIF details, and AI tags.",
+    {
+        assetId: z.string().describe("The unique ID of the asset to analyze")
+    },
+    async ({ assetId }) => {
+        let metadataStr = "";
+        try {
+            const asset = await apiRequest(`/assets/${assetId}`, { method: "GET" });
+            metadataStr = JSON.stringify(asset, null, 2);
+        } catch (e: any) {
+            metadataStr = `Asset metadata could not be fetched: ${e.message}`;
+        }
+
+        return {
+            messages: [
+                {
+                    role: "user",
+                    content: {
+                        type: "text",
+                        text: `You are an expert Media Archivist and Creative Director. I have loaded the metadata for asset "${assetId}":
+
+${metadataStr}
+
+Please perform a comprehensive creative and technical evaluation of this media asset.
+Your evaluation must analyze:
+1. **Visual/Content Composition**: What objects, faces, text, and themes are detected? What is the mood or style?
+2. **Technical Quality**: Based on size, mime-type, and EXIF parameters (if available).
+3. **Metadata Audit**: Suggest additions or revisions to the current tags and custom metadata to maximize search relevance.
+4. **Creative Ideas**: How could this asset be used in campaigns, websites, or platform-specific social media copy?`
+                    }
+                }
+            ]
+        };
+    }
+);
+
+server.prompt(
+    "generate_social_campaign",
+    "Helps generate platform-specific social media copy and smart crop parameters based on an asset's content.",
+    {
+        assetId: z.string().describe("The unique ID of the asset to generate campaigns for"),
+        campaignContext: z.string().describe("The marketing theme or context (e.g. 'Summer Beach Launch', 'B2B Tech Webinar')")
+    },
+    async ({ assetId, campaignContext }) => {
+        let metadataStr = "";
+        try {
+            const asset = await apiRequest(`/assets/${assetId}`, { method: "GET" });
+            metadataStr = JSON.stringify(asset, null, 2);
+        } catch (e: any) {
+            metadataStr = `Asset metadata could not be fetched: ${e.message}`;
+        }
+
+        return {
+            messages: [
+                {
+                    role: "user",
+                    content: {
+                        type: "text",
+                        text: `You are a social media growth manager and copywriting expert. I have a media asset with the following description/tags:
+
+${metadataStr}
+
+And the campaign context/theme is: "${campaignContext}".
+
+Please design a high-impact, multi-channel social media rollout:
+1. **Instagram/Threads (1:1 Smart Crop)**: Write visual copy, recommend hashtags, and construct a Picsha CDN delivery URL using a 1080x1080 smart crop: \`https://api.picsha.ai/v1/assets/${assetId}/render?w=1080&h=1080&crop=face\` (or crop=entropy if no faces are present).
+2. **Twitter/LinkedIn (16:9 Landscape Crop)**: Write professional/engaging copy and provide a 1200x675 crop URL (\`https://api.picsha.ai/v1/assets/${assetId}/render?w=1200&h=675&crop=entropy\`).
+3. **Pinterest/TikTok (9:16 Portrait Crop)**: Write engaging vertical copy and provide a 1080x1920 crop URL (\`https://api.picsha.ai/v1/assets/${assetId}/render?w=1080&h=1920&crop=entropy\`).`
+                    }
+                }
+            ]
+        };
+    }
+);
+
+server.prompt(
+    "image_magic_transform",
+    "Walks the LLM and user through Picsha's generative AI fill and background removal parameters.",
+    {
+        assetId: z.string().describe("The unique ID of the asset to transform"),
+        targetWidth: z.string().describe("Target width (e.g. '800')"),
+        targetHeight: z.string().describe("Target height (e.g. '600')"),
+        generativePrompt: z.string().describe("What background or elements to generate (e.g. 'beautiful forest sunset background')")
+    },
+    async ({ assetId, targetWidth, targetHeight, generativePrompt }) => {
+        let metadataStr = "";
+        try {
+            const asset = await apiRequest(`/assets/${assetId}`, { method: "GET" });
+            metadataStr = JSON.stringify(asset, null, 2);
+        } catch (e: any) {
+            metadataStr = `Asset metadata could not be fetched: ${e.message}`;
+        }
+
+        const encodedPrompt = encodeURIComponent(generativePrompt);
+
+        return {
+            messages: [
+                {
+                    role: "user",
+                    content: {
+                        type: "text",
+                        text: `You are a Picsha AI CDN integration expert. We want to apply an advanced generative AI transformation to asset "${assetId}".
+
+Asset Details:
+${metadataStr}
+
+The user's requested transformation details:
+- **Target Size**: ${targetWidth}px wide by ${targetHeight}px high
+- **Generative Prompt**: "${generativePrompt}"
+
+Please:
+1. Explain the specific transformation parameters that will be applied (e.g., smart-cropping, aspect-ratio extension via generative fill, background removal).
+2. Construct the exact Picsha CDN delivery render URL using the appropriate transformation keys (e.g., \`https://api.picsha.ai/v1/assets/${assetId}/render?w=${targetWidth}&h=${targetHeight}&gen_fill=true&prompt=${encodedPrompt}&fmt=webp\`).
+3. Advise on caching and performance optimizations (such as format conversion, quality tuning, or pre-warming the cache).`
+                    }
+                }
+            ]
+        };
     }
 );
 

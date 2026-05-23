@@ -51,3 +51,28 @@ This MCP server provides the following capabilities to your LLM:
 * `generate_render_url`: Provides on-the-fly image transformations and AI generative fill parameters.
 * `trigger_url_ingest`: Ingest public web media directly into the DAM.
 * `moderate_asset`, `link_assets`, `create_dam_group`, `update_asset`, `delete_asset` ...and more!
+
+## Troubleshooting
+
+### Claude Desktop Hangs or Fails to Connect
+If you are using macOS and Claude Desktop gets stuck connecting to the MCP (or the tools never show up), it is likely due to `npx` dropping standard input/output streams. To fix this:
+
+1. Install the server globally instead of using `npx`:
+   ```bash
+   npm install -g @picsha-ai/mcp-server
+   ```
+2. Update your `claude_desktop_config.json` to point directly to the installed binary:
+   ```json
+   {
+     "mcpServers": {
+       "picsha-ai": {
+         "command": "picsha-ai-mcp",
+         "args": [],
+         "env": {
+           "PICSHA_API_TOKEN": "<YOUR_API_TOKEN_HERE>"
+         }
+       }
+     }
+   }
+   ```
+3. Restart Claude Desktop.
